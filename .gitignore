@@ -398,3 +398,6 @@ FodyWeavers.xsd
 *.sln.iml
 SHARMipMapGenerator/Publish.bat
 SHARMipMapGenerator/SHARMipMapGenerator/Properties/launchSettings.json
+*.p3d
+SHARMipMapGenerator/Test.bat
+SHARMipMapGenerator/Test.ps1

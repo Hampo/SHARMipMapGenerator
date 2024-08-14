@@ -1,6 +1,7 @@
-﻿using Imageflow.Fluent;
+﻿using ImageMagick;
 using NetP3DLib.P3D;
 using NetP3DLib.P3D.Chunks;
+using System.Diagnostics;
 using System.Reflection;
 
 if (args.Length == 0 || args.Contains("--help") || args.Contains("-h"))
@@ -11,11 +12,20 @@ if (args.Length == 0 || args.Contains("--help") || args.Contains("-h"))
     return;
 }
 
+HashSet<string> valueArguments = [
+    "-m",
+    "--mode",
+    "-v",
+    "--value"
+];
 List<string> options = [];
+Dictionary<string, int> valueOptions = [];
 string? inputPath = null;
 string? outputPath = null;
-foreach (string arg in args)
+for (int i = 0; i < args.Length; i++)
 {
+    string arg = args[i];
+
     if (!string.IsNullOrWhiteSpace(outputPath))
     {
         Console.WriteLine($"Unknown/unused argument: {arg}");
@@ -25,6 +35,24 @@ foreach (string arg in args)
     if (!string.IsNullOrWhiteSpace(inputPath))
     {
         outputPath = arg;
+        continue;
+    }
+
+    if (valueArguments.Contains(arg))
+    {
+        var valueIndex = ++i;
+        if (valueIndex >= args.Length)
+        {
+            Console.WriteLine($"Not enough arguments for value option \"{arg}\".");
+            return;
+        }
+        string valueStr = args[valueIndex];
+        if (!int.TryParse(valueStr, out int value))
+        {
+            Console.WriteLine($"Value \"{valueStr}\" isn't a number.");
+            return;
+        }
+        valueOptions[arg] = value;
         continue;
     }
 
@@ -137,21 +165,29 @@ Console.WriteLine($"Update All Shaders: {updateAllShaders}.");
 
 var modes = Enum.GetValues<Mode>();
 Mode mode;
-while (true)
+int modeInt;
+if (valueOptions.TryGetValue("-m", out modeInt) || valueOptions.TryGetValue("--mode", out modeInt))
 {
-    Console.WriteLine("Pick a generation mode:");
-    for (int i = 0; i < modes.Length; i++)
-        Console.WriteLine($"\t[{i}] {modes[i]}");
-
-    string? indexStr = Console.ReadLine();
-    if (!int.TryParse(indexStr, out var index) || index < 0 || index >= modes.Length)
+    mode = (Mode)modeInt;
+}
+else
+{
+    while (true)
     {
-        Console.WriteLine($"Invalid index specified. Please enter an index between 0 and {modes.Length - 1}.");
-        continue;
-    }
+        Console.WriteLine("Pick a generation mode:");
+        for (int i = 0; i < modes.Length; i++)
+            Console.WriteLine($"\t[{i}] {modes[i]}");
 
-    mode = modes[index];
-    break;
+        string? indexStr = Console.ReadLine();
+        if (!int.TryParse(indexStr, out var index) || index < 0 || index >= modes.Length)
+        {
+            Console.WriteLine($"Invalid index specified. Please enter an index between 0 and {modes.Length - 1}.");
+            continue;
+        }
+
+        mode = modes[index];
+        break;
+    }
 }
 Console.WriteLine($"Using mode: {mode}");
 
@@ -189,19 +225,30 @@ try
             case Mode.Number_of_MipMaps:
                 {
                     int numMipMaps;
-                    while (true)
+                    if (valueOptions.TryGetValue("-v", out numMipMaps) || valueOptions.TryGetValue("--value", out numMipMaps))
                     {
-                        Console.WriteLine("Enter number of mipmaps:");
-
-                        string? numStr = Console.ReadLine();
-                        if (!int.TryParse(numStr, out var num) || num <= 1)
+                        if (numMipMaps <= 1)
                         {
-                            Console.WriteLine($"Invalid number specified. Please enter number greater than 1.");
-                            continue;
+                            Console.WriteLine($"Invalid value specified. Please enter number greater than 1.");
+                            return;
                         }
+                    }
+                    else
+                    {
+                        while (true)
+                        {
+                            Console.WriteLine("Enter number of mipmaps:");
 
-                        numMipMaps = num;
-                        break;
+                            string? numStr = Console.ReadLine();
+                            if (!int.TryParse(numStr, out var num) || num <= 1)
+                            {
+                                Console.WriteLine($"Invalid number specified. Please enter number greater than 1.");
+                                continue;
+                            }
+
+                            numMipMaps = num;
+                            break;
+                        }
                     }
 
                     foreach (var texture in textures)
@@ -212,31 +259,42 @@ try
                             continue;
                         }
 
-                        if (!await ValidateTexture(texture))
+                        if (!ValidateTexture(texture))
                             continue;
 
                         Console.WriteLine($"Processing: {texture.Name}");
 
-                        changed = await GenerateMipMaps(texture, numMipMaps, textureShaderMap);
+                        changed = GenerateMipMaps(texture, numMipMaps, textureShaderMap);
                     }
                     break;
                 }
             case Mode.Minimum_Size:
                 {
                     int minimumSize;
-                    while (true)
+                    if (valueOptions.TryGetValue("-v", out minimumSize) || valueOptions.TryGetValue("--value", out minimumSize))
                     {
-                        Console.WriteLine("Enter minimum size:");
-
-                        string? numStr = Console.ReadLine();
-                        if (!int.TryParse(numStr, out var num) || num % 2 != 0 || num < 2 || num > 2048)
+                        if (minimumSize % 2 != 0 || minimumSize < 2 || minimumSize > 2048)
                         {
-                            Console.WriteLine($"Invalid number specified. Please enter number greater than or equal to 2. It must also be a power of 2");
-                            continue;
+                            Console.WriteLine($"Invalid value specified. Please enter a power of 2 between 2 and 2048.");
+                            return;
                         }
+                    }
+                    else
+                    {
+                        while (true)
+                        {
+                            Console.WriteLine("Enter minimum size:");
 
-                        minimumSize = num;
-                        break;
+                            string? numStr = Console.ReadLine();
+                            if (!int.TryParse(numStr, out var num) || num % 2 != 0 || num < 2 || num > 2048)
+                            {
+                                Console.WriteLine($"Invalid number specified. Please enter a power of 2 between 2 and 2048.");
+                                continue;
+                            }
+
+                            minimumSize = num;
+                            break;
+                        }
                     }
 
                     foreach (var texture in textures)
@@ -247,14 +305,14 @@ try
                             continue;
                         }
 
-                        if (!await ValidateTexture(texture))
+                        if (!ValidateTexture(texture))
                             continue;
 
                         Console.WriteLine($"Processing: {texture.Name}");
 
                         int numMipMaps = (int)Math.Log2(Math.Min(texture.Width, texture.Height) / minimumSize) + 1;
 
-                        changed = await GenerateMipMaps(texture, numMipMaps, textureShaderMap);
+                        changed = GenerateMipMaps(texture, numMipMaps, textureShaderMap);
                     }
                     break;
                 }
@@ -338,7 +396,7 @@ static bool IsValidOutputPath(string outputPath)
     return true;
 }
 
-static async Task<bool> ValidateTexture(TextureChunk texture)
+static bool ValidateTexture(TextureChunk texture)
 {
     if (texture.Width % 2 != 0)
     {
@@ -379,53 +437,25 @@ static async Task<bool> ValidateTexture(TextureChunk texture)
         return false;
     }
 
-    var imageInfo = await ImageJob.GetImageInfoAsync(new MemorySource(imageDataChunks[0].ImageData), SourceLifetime.NowOwnedAndDisposedByTask);
-    if (imageInfo.ImageWidth != texture.Width || imageInfo.ImageHeight != texture.Height)
-    {
-        Console.WriteLine($"Skipping texture \"{texture.Name}\". Image data dimensions do not match texture dimensions.");
-        return false;
-    }
-
     return true;
 }
 
-static async Task<bool> GenerateMipMaps(TextureChunk textureChunk, int numMipMaps, Dictionary<string, List<ShaderChunk>> textureShaderMap)
+static bool GenerateMipMaps(TextureChunk textureChunk, int numMipMaps, Dictionary<string, List<ShaderChunk>> textureShaderMap)
 {
     var imageChunk = textureChunk.GetFirstChunkOfType<ImageChunk>();
     var imageDataChunk = imageChunk.GetFirstChunkOfType<ImageDataChunk>();
 
-    using var imageJob = new ImageJob();
-    var node = imageJob.Decode(imageDataChunk.ImageData)
-        .Constrain(new(ConstraintMode.Fit, imageChunk.Width, imageChunk.Height));
-    for (int i = 1; i < numMipMaps; i++)
-        node.Branch(f => f.Constrain(new(ConstraintMode.Fit, (uint)(imageChunk.Width / Math.Pow(2, i)), (uint)(imageChunk.Height / Math.Pow(2, i)))).EncodeToBytes(new LodePngEncoder()));
-    var result = await node.EncodeToBytes(new LodePngEncoder()).Finish().InProcessAndDisposeAsync();
-
     List<ImageChunk> images = new(numMipMaps);
-    for (int i = 1; i < numMipMaps; i++)
+
+    for (int i = 0; i < numMipMaps; i++)
     {
-        var imageResult = result.TryGet(i);
-        if (imageResult == null)
-        {
-            Console.WriteLine($"Skipping texture \"{textureChunk.Name}\". Error resizing image.");
-            return false;
-        }
-        var newImage = new ImageChunk($"{imageChunk.Name}_{i}", imageChunk.Version, (uint)imageResult.Width, (uint)imageResult.Height, imageChunk.Bpp, imageChunk.Palettized, imageChunk.HasAlpha, ImageChunk.Formats.PNG);
-        var newImageData = new ImageDataChunk(imageResult.TryGetBytes()?.ToArray());
+        var width = (int)(imageChunk.Width / Math.Pow(2, i));
+        var height = (int)(imageChunk.Height / Math.Pow(2, i));
+
+        var newImage = new ImageChunk($"{imageChunk.Name}_{i}", imageChunk.Version, (uint)width, (uint)height, imageChunk.Bpp, imageChunk.Palettized, imageChunk.HasAlpha, ImageChunk.Formats.PNG);
+        var newImageData = new ImageDataChunk(DownscaleImage(imageDataChunk.ImageData, width, height, textureChunk.Name));
         newImage.Children.Add(newImageData);
         images.Add(newImage);
-    }
-    {
-        var imageResult = result.TryGet(numMipMaps);
-        if (imageResult == null)
-        {
-            Console.WriteLine($"Skipping texture \"{textureChunk.Name}\". Error resizing image.");
-            return false;
-        }
-        var newImage = new ImageChunk($"{imageChunk.Name}", imageChunk.Version, (uint)imageResult.Width, (uint)imageResult.Height, imageChunk.Bpp, imageChunk.Palettized, imageChunk.HasAlpha, ImageChunk.Formats.PNG);
-        var newImageData = new ImageDataChunk(imageResult.TryGetBytes()?.ToArray());
-        newImage.Children.Add(newImageData);
-        images.Insert(0, newImage);
     }
 
     for (int i = textureChunk.Children.Count - 1; i >= 0; i--)
@@ -437,6 +467,40 @@ static async Task<bool> GenerateMipMaps(TextureChunk textureChunk, int numMipMap
         UpdateShaderFilterMode(shaderList);
 
     return true;
+}
+
+static byte[] DownscaleImage(byte[] imageBytes, int newWidth, int newHeight, string texture)
+{
+    using var image = new MagickImage(imageBytes);
+
+    image.FilterType = FilterType.Sinc;
+
+    var x = image.Channels.ToArray();
+    var channels = image.Separate(Channels.RGBA).ToArray();
+
+    foreach (var channel in channels)
+    {
+        channel.FilterType = FilterType.Sinc;
+        channel.InterpolativeResize(newWidth, newHeight, PixelInterpolateMethod.Spline);
+    }
+
+    using var resultImage = new MagickImage(image.BackgroundColor ?? MagickColors.Transparent, newWidth, newHeight)
+    {
+        Depth = image.Depth,
+        Format = MagickFormat.Png,
+        HasAlpha = image.HasAlpha,
+        BorderColor = image.BorderColor,
+        MatteColor = image.MatteColor,
+        Chromaticity = image.Chromaticity,
+    };
+    resultImage.SetCompression(image.Compression);
+    resultImage.Composite(channels[0], CompositeOperator.CopyRed);
+    resultImage.Composite(channels[1], CompositeOperator.CopyGreen);
+    resultImage.Composite(channels[2], CompositeOperator.CopyBlue);
+    if (channels.Length > 3)
+        resultImage.Composite(channels[3], CompositeOperator.CopyAlpha);
+
+    return resultImage.ToByteArray();
 }
 
 static bool UpdateShaderFilterMode(IList<ShaderChunk> shaderList)
