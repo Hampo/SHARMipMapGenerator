@@ -1,0 +1,33 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>false</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <ApplicationIcon>256x256.ico</ApplicationIcon>
+    <AssemblyVersion>1.0</AssemblyVersion>
+    <FileVersion>1.0</FileVersion>
+    <Version>1.0</Version>
+    <Title>SHAR MipMap Generator</Title>
+    <Company>Donut Team</Company>
+    <Authors>Proddy</Authors>
+    <Description>A CLI tool to automatically generate mipmaps.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="256x256.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Imageflow.AllPlatforms" Version="0.13.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\NetP3DLib\NetP3DLib\NetP3DLib\NetP3DLib.csproj" />
+  </ItemGroup>
+
+</Project>
