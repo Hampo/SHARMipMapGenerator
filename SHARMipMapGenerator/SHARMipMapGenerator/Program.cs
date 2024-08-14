@@ -452,7 +452,7 @@ static bool GenerateMipMaps(TextureChunk textureChunk, int numMipMaps, Dictionar
         var width = (int)(imageChunk.Width / Math.Pow(2, i));
         var height = (int)(imageChunk.Height / Math.Pow(2, i));
 
-        var newImage = new ImageChunk($"{imageChunk.Name}_{i}", imageChunk.Version, (uint)width, (uint)height, imageChunk.Bpp, imageChunk.Palettized, imageChunk.HasAlpha, ImageChunk.Formats.PNG);
+        var newImage = new ImageChunk($"{imageChunk.Name}_{i}", imageChunk.Version, (uint)width, (uint)height, imageChunk.Bpp == 4 ? 8 : imageChunk.Bpp, imageChunk.Palettized, imageChunk.HasAlpha, ImageChunk.Formats.PNG);
         var newImageData = new ImageDataChunk(DownscaleImage(imageDataChunk.ImageData, width, height, textureChunk.Name));
         newImage.Children.Add(newImageData);
         images.Add(newImage);
@@ -462,6 +462,8 @@ static bool GenerateMipMaps(TextureChunk textureChunk, int numMipMaps, Dictionar
         textureChunk.Children.RemoveAt(i);
     textureChunk.Children.AddRange(images);
     textureChunk.NumMipMaps = (uint)numMipMaps;
+    if (textureChunk.Bpp == 4)
+        textureChunk.Bpp = 8;
 
     if (textureShaderMap.TryGetValue(textureChunk.Name, out var shaderList))
         UpdateShaderFilterMode(shaderList);
@@ -484,15 +486,7 @@ static byte[] DownscaleImage(byte[] imageBytes, int newWidth, int newHeight, str
         channel.InterpolativeResize(newWidth, newHeight, PixelInterpolateMethod.Spline);
     }
 
-    using var resultImage = new MagickImage(image.BackgroundColor ?? MagickColors.Transparent, newWidth, newHeight)
-    {
-        Depth = image.Depth,
-        Format = MagickFormat.Png,
-        HasAlpha = image.HasAlpha,
-        BorderColor = image.BorderColor,
-        MatteColor = image.MatteColor,
-        Chromaticity = image.Chromaticity,
-    };
+    using var resultImage = new MagickImage(image.BackgroundColor ?? MagickColors.Transparent, newWidth, newHeight);
     resultImage.SetCompression(image.Compression);
     resultImage.Composite(channels[0], CompositeOperator.CopyRed);
     resultImage.Composite(channels[1], CompositeOperator.CopyGreen);
@@ -500,7 +494,31 @@ static byte[] DownscaleImage(byte[] imageBytes, int newWidth, int newHeight, str
     if (channels.Length > 3)
         resultImage.Composite(channels[3], CompositeOperator.CopyAlpha);
 
-    return resultImage.ToByteArray();
+    resultImage.Depth = image.Depth;
+    resultImage.HasAlpha = image.HasAlpha;
+    resultImage.BorderColor = image.BorderColor;
+    resultImage.MatteColor = image.MatteColor;
+    resultImage.Chromaticity = image.Chromaticity;
+
+    switch (image.Depth)
+    {
+        case 4:
+        case 8:
+            return resultImage.ToByteArray(MagickFormat.Png8);
+        case 24:
+            return resultImage.ToByteArray(MagickFormat.Png24);
+        case 32:
+            return resultImage.ToByteArray(MagickFormat.Png32);
+        case 48:
+            return resultImage.ToByteArray(MagickFormat.Png48);
+        case 64:
+            return resultImage.ToByteArray(MagickFormat.Png64);
+        default:
+            Console.WriteLine($"Unknown bitdepth found: {image.Depth}. May result in unexpected behaviour.");
+            Console.WriteLine("Press any key to continue . . .");
+            Console.ReadKey(true);
+            return resultImage.ToByteArray(MagickFormat.Png00);
+    }
 }
 
 static bool UpdateShaderFilterMode(IList<ShaderChunk> shaderList)
