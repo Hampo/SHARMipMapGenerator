@@ -454,7 +454,7 @@ static bool GenerateMipMaps(TextureChunk textureChunk, int numMipMaps, Dictionar
         var width = (int)(imageChunk.Width / Math.Pow(2, i));
         var height = (int)(imageChunk.Height / Math.Pow(2, i));
 
-        var newImage = new ImageChunk($"{imageChunk.Name}_{i}", imageChunk.Version, (uint)width, (uint)height, imageChunk.Bpp == 4 ? 8 : imageChunk.Bpp, imageChunk.Palettized, imageChunk.HasAlpha, ImageChunk.Formats.PNG);
+        var newImage = new ImageChunk($"{imageChunk.Name}_{i}", imageChunk.Version, (uint)width, (uint)height, /*imageChunk.Bpp == 4 ? 8 : imageChunk.Bpp*/32, imageChunk.Palettized, imageChunk.HasAlpha, ImageChunk.Formats.PNG);
         var newImageData = new ImageDataChunk(DownscaleImage(imageDataChunk.ImageData, width, height, textureChunk.Name));
         newImage.Children.Add(newImageData);
         images.Add(newImage);
@@ -464,8 +464,9 @@ static bool GenerateMipMaps(TextureChunk textureChunk, int numMipMaps, Dictionar
         textureChunk.Children.RemoveAt(i);
     textureChunk.Children.AddRange(images);
     textureChunk.NumMipMaps = (uint)numMipMaps;
-    if (textureChunk.Bpp == 4)
-        textureChunk.Bpp = 8;
+    /*if (textureChunk.Bpp == 4)
+        textureChunk.Bpp = 8;*/
+    textureChunk.Bpp = 32;
 
     if (textureShaderMap.TryGetValue(textureChunk.Name, out var shaderList))
         UpdateShaderFilterMode(shaderList);
@@ -493,8 +494,16 @@ static byte[] DownscaleImage(byte[] imageBytes, int newWidth, int newHeight, str
     resultImage.Composite(channels[0], CompositeOperator.CopyRed);
     resultImage.Composite(channels[1], CompositeOperator.CopyGreen);
     resultImage.Composite(channels[2], CompositeOperator.CopyBlue);
-    if (channels.Length > 3)
-        resultImage.Composite(channels[3], CompositeOperator.CopyAlpha);
+    if (image.HasAlpha)
+    {
+        if (channels.Length > 3)
+            resultImage.Composite(channels[3], CompositeOperator.CopyAlpha);
+        else
+        {
+            using var alphaChannel = new MagickImage(MagickColors.Black, newWidth, newHeight);
+            resultImage.Composite(alphaChannel, CompositeOperator.CopyAlpha);
+        }
+    }
 
     resultImage.Depth = image.Depth;
     resultImage.HasAlpha = image.HasAlpha;
@@ -502,7 +511,8 @@ static byte[] DownscaleImage(byte[] imageBytes, int newWidth, int newHeight, str
     resultImage.MatteColor = image.MatteColor;
     resultImage.Chromaticity = image.Chromaticity;
 
-    switch (image.Depth)
+    return resultImage.ToByteArray(MagickFormat.Png32);
+    /*switch (image.Depth)
     {
         case 4:
         case 8:
@@ -520,7 +530,7 @@ static byte[] DownscaleImage(byte[] imageBytes, int newWidth, int newHeight, str
             Console.WriteLine("Press any key to continue . . .");
             Console.ReadKey(true);
             return resultImage.ToByteArray(MagickFormat.Png00);
-    }
+    }*/
 }
 
 static bool UpdateShaderFilterMode(IList<ShaderChunk> shaderList)
