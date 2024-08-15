@@ -1,7 +1,7 @@
 ﻿using ImageMagick;
 using NetP3DLib.P3D;
 using NetP3DLib.P3D.Chunks;
-using System.Diagnostics;
+using System.Numerics;
 using System.Reflection;
 
 if (args.Length == 0 || args.Contains("--help") || args.Contains("-h"))
@@ -273,7 +273,7 @@ try
                     int minimumSize;
                     if (valueOptions.TryGetValue("-v", out minimumSize) || valueOptions.TryGetValue("--value", out minimumSize))
                     {
-                        if (minimumSize % 2 != 0 || minimumSize < 2 || minimumSize > 2048)
+                        if (!BitOperations.IsPow2(minimumSize) || minimumSize < 2 || minimumSize > 2048)
                         {
                             Console.WriteLine($"Invalid value specified. Please enter a power of 2 between 2 and 2048.");
                             return;
@@ -286,7 +286,7 @@ try
                             Console.WriteLine("Enter minimum size:");
 
                             string? numStr = Console.ReadLine();
-                            if (!int.TryParse(numStr, out var num) || num % 2 != 0 || num < 2 || num > 2048)
+                            if (!int.TryParse(numStr, out var num) || !BitOperations.IsPow2(num) || num < 2 || num > 2048)
                             {
                                 Console.WriteLine($"Invalid number specified. Please enter a power of 2 between 2 and 2048.");
                                 continue;
