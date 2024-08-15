@@ -355,6 +355,8 @@ static void PrintHelp()
     Console.WriteLine("  -f   | --force                 Force overwrite the output file.");
     Console.WriteLine("  -nh  | --no_history            Don't add history chunk.");
     Console.WriteLine("  -uas | --update_all_shaders    Updates all shaders in the file to set their filter mode to use mipmaps.");
+    Console.WriteLine("  -m   | --mode   <value>        Sets the mipmap mode. If omitted, it will prompt in console.");
+    Console.WriteLine("  -v   | --value  <value>        Sets the value for the mode. If omitted, it will prompt in console. For \"Number_of_MipMaps\" this will be the mipmap count. For \"Mininum_Size\" this will be the minimum width or height.");
     Console.WriteLine();
     Console.WriteLine("Arguments:");
     Console.WriteLine("  <input_path>   The input P3D file.");
