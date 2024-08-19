@@ -14,9 +14,9 @@ if (args.Length == 0 || args.Contains("--help") || args.Contains("-h"))
 
 HashSet<string> valueArguments = [
     "-m",
-    "--mode",
-    "-v",
-    "--value"
+    "--min_size",
+    "-n",
+    "--num_mipmaps",
 ];
 List<string> options = [];
 Dictionary<string, int> valueOptions = [];
@@ -99,6 +99,44 @@ foreach (var option in options)
     }
 }
 
+int? minimumSize = null;
+int? numMipMaps = null;
+foreach (var option in valueOptions)
+{
+    switch (option.Key)
+    {
+        case "-m":
+        case "--min_size":
+            if (option.Value < 2 || option.Value > 2048 || !BitOperations.IsPow2(option.Value))
+            {
+                Console.WriteLine($"Invalid minimum size specified. Please enter a power of 2 between 2 and 2048.");
+                return;
+            }
+            minimumSize = option.Value;
+            break;
+        case "-n":
+        case "--num_mipmaps":
+            if (option.Value <= 1)
+            {
+                Console.WriteLine($"Invalid number of mipmaps specified. Please enter number greater than 1.");
+                return;
+            }
+            numMipMaps = option.Value;
+            break;
+        default:
+            Console.WriteLine($"Unknown/unused value option: {option.Key}={option.Value}");
+            break;
+    }
+}
+if (!numMipMaps.HasValue && !minimumSize.HasValue)
+{
+    Console.WriteLine("You must specify a minimum size and/or a number of mipmaps.");
+    PrintHelp();
+    Console.WriteLine("Press any key to exit . . .");
+    Console.ReadKey(true);
+    return;
+}
+
 var inputFileInfo = new FileInfo(inputPath);
 if (!inputFileInfo.Exists)
 {
@@ -162,41 +200,18 @@ Console.WriteLine($"Output Path: {outputPath}.");
 Console.WriteLine($"Force: {force}.");
 Console.WriteLine($"No History: {noHistory}.");
 Console.WriteLine($"Update All Shaders: {updateAllShaders}.");
-
-var modes = Enum.GetValues<Mode>();
-Mode mode;
-int modeInt;
-if (valueOptions.TryGetValue("-m", out modeInt) || valueOptions.TryGetValue("--mode", out modeInt))
-{
-    mode = (Mode)modeInt;
-}
-else
-{
-    while (true)
-    {
-        Console.WriteLine("Pick a generation mode:");
-        for (int i = 0; i < modes.Length; i++)
-            Console.WriteLine($"\t[{i}] {modes[i]}");
-
-        string? indexStr = Console.ReadLine();
-        if (!int.TryParse(indexStr, out var index) || index < 0 || index >= modes.Length)
-        {
-            Console.WriteLine($"Invalid index specified. Please enter an index between 0 and {modes.Length - 1}.");
-            continue;
-        }
-
-        mode = modes[index];
-        break;
-    }
-}
-Console.WriteLine($"Using mode: {mode}");
+Console.WriteLine($"Minimum Size: {(minimumSize.HasValue ? minimumSize.Value : "NULL")}");
+Console.WriteLine($"Number of Mipmaps: {(numMipMaps.HasValue ? numMipMaps.Value : "NULL")}");
 
 try
 {
     P3DFile file = new(inputPath);
 
-    var textures = file.GetChunksOfType<TextureChunk>();
-    if (!updateAllShaders && textures.Length == 0)
+    var textures = file.GetChunksOfType<TextureChunk>().ToList();
+    var sets = file.GetChunksOfType<SetChunk>();
+    foreach (var set in sets)
+        textures.AddRange(set.GetChunksOfType<TextureChunk>());
+    if (!updateAllShaders && textures.Count == 0)
     {
         Console.WriteLine($"Could not find any Texture chunks in file.");
         return;
@@ -205,9 +220,9 @@ try
     bool changed = false;
 
     var shaders = file.GetChunksOfType<ShaderChunk>();
-    if (textures.Length > 0)
+    if (textures.Count > 0)
     {
-        Dictionary<string, List<ShaderChunk>> textureShaderMap = new(textures.Length);
+        Dictionary<string, List<ShaderChunk>> textureShaderMap = new(textures.Count);
         foreach (var shader in shaders)
         {
             var textureParam = shader.GetLastParamOfType<ShaderTextureParameterChunk>("TEX");
@@ -220,105 +235,44 @@ try
             }
             textureShaderList.Add(shader);
         }
-        switch (mode)
+
+        foreach (var texture in textures)
         {
-            case Mode.Number_of_MipMaps:
-                {
-                    int numMipMaps;
-                    if (valueOptions.TryGetValue("-v", out numMipMaps) || valueOptions.TryGetValue("--value", out numMipMaps))
-                    {
-                        if (numMipMaps <= 1)
-                        {
-                            Console.WriteLine($"Invalid value specified. Please enter number greater than 1.");
-                            return;
-                        }
-                    }
-                    else
-                    {
-                        while (true)
-                        {
-                            Console.WriteLine("Enter number of mipmaps:");
+            if (!ValidateTexture(texture))
+                continue;
 
-                            string? numStr = Console.ReadLine();
-                            if (!int.TryParse(numStr, out var num) || num <= 1)
-                            {
-                                Console.WriteLine($"Invalid number specified. Please enter number greater than 1.");
-                                continue;
-                            }
+            if (minimumSize.HasValue && (texture.Width < minimumSize || texture.Height < minimumSize))
+            {
+                Console.WriteLine($"Skipping texture \"{texture.Name}\". Already smaller than minimum size.");
+                continue;
+            }
 
-                            numMipMaps = num;
-                            break;
-                        }
-                    }
-
-                    foreach (var texture in textures)
-                    {
-                        if (texture.NumMipMaps == numMipMaps)
-                        {
-                            Console.WriteLine($"Skipping texture \"{texture.Name}\". Already has {numMipMaps} mipmaps.");
-                            continue;
-                        }
-
-                        if (!ValidateTexture(texture))
-                            continue;
-
-                        Console.WriteLine($"Processing: {texture.Name}");
-
-                        changed = GenerateMipMaps(texture, numMipMaps, textureShaderMap);
-                    }
-                    break;
-                }
-            case Mode.Minimum_Size:
-                {
-                    int minimumSize;
-                    if (valueOptions.TryGetValue("-v", out minimumSize) || valueOptions.TryGetValue("--value", out minimumSize))
-                    {
-                        if (!BitOperations.IsPow2(minimumSize) || minimumSize < 2 || minimumSize > 2048)
-                        {
-                            Console.WriteLine($"Invalid value specified. Please enter a power of 2 between 2 and 2048.");
-                            return;
-                        }
-                    }
-                    else
-                    {
-                        while (true)
-                        {
-                            Console.WriteLine("Enter minimum size:");
-
-                            string? numStr = Console.ReadLine();
-                            if (!int.TryParse(numStr, out var num) || !BitOperations.IsPow2(num) || num < 2 || num > 2048)
-                            {
-                                Console.WriteLine($"Invalid number specified. Please enter a power of 2 between 2 and 2048.");
-                                continue;
-                            }
-
-                            minimumSize = num;
-                            break;
-                        }
-                    }
-
-                    foreach (var texture in textures)
-                    {
-                        if (texture.Width < minimumSize || texture.Height < minimumSize)
-                        {
-                            Console.WriteLine($"Skipping texture \"{texture.Name}\". Already smaller than minimum size.");
-                            continue;
-                        }
-
-                        if (!ValidateTexture(texture))
-                            continue;
-
-                        Console.WriteLine($"Processing: {texture.Name}");
-
-                        int numMipMaps = (int)Math.Log2(Math.Min(texture.Width, texture.Height) / minimumSize) + 1;
-
-                        changed = GenerateMipMaps(texture, numMipMaps, textureShaderMap);
-                    }
-                    break;
-                }
-            default:
-                Console.WriteLine($"Unimplemented mode: {mode}");
+            int textureMipMaps;
+            if (minimumSize.HasValue)
+            {
+                textureMipMaps = (int)Math.Log2(Math.Min(texture.Width, texture.Height) / minimumSize.Value) + 1;
+                if (numMipMaps.HasValue)
+                    textureMipMaps = Math.Min(textureMipMaps, numMipMaps.Value);
+            }
+            else if (numMipMaps.HasValue)
+            {
+                textureMipMaps = numMipMaps.Value;
+            }
+            else
+            {
+                Console.WriteLine("How are you here? Neither a minimum size of a number of mipmaps specified.");
                 return;
+            }
+
+            if (texture.NumMipMaps == textureMipMaps)
+            {
+                Console.WriteLine($"Skipping texture \"{texture.Name}\". Already has {textureMipMaps} mipmaps.");
+                continue;
+            }
+
+            Console.WriteLine($"Processing: {texture.Name}");
+
+            changed = GenerateMipMaps(texture, textureMipMaps, textureShaderMap);
         }
     }
 
@@ -355,16 +309,16 @@ static void PrintHelp()
     Console.WriteLine("  -f   | --force                 Force overwrite the output file.");
     Console.WriteLine("  -nh  | --no_history            Don't add history chunk.");
     Console.WriteLine("  -uas | --update_all_shaders    Updates all shaders in the file to set their filter mode to use mipmaps.");
-    Console.WriteLine("  -m   | --mode   <value>        Sets the mipmap mode. If omitted, it will prompt in console.");
-    Console.WriteLine("  -v   | --value  <value>        Sets the value for the mode. If omitted, it will prompt in console. For \"Number_of_MipMaps\" this will be the mipmap count. For \"Mininum_Size\" this will be the minimum width or height.");
+    Console.WriteLine("  -m   | --min_size  <value>     Sets the minimum size mipmap to generate.");
+    Console.WriteLine("  -n   | --num_mipmaps  <value>  Sets the number of mipmaps to generate.");
     Console.WriteLine();
     Console.WriteLine("Arguments:");
     Console.WriteLine("  <input_path>   The input P3D file.");
     Console.WriteLine("  [output_path]  The output P3D file. If omitted, it will attempt to overwrite \"input_path\".");
     Console.WriteLine();
     Console.WriteLine("Example:");
-    Console.WriteLine("  SHARMipMapGenerator C:\\input\\model.p3d C:\\output\\model.p3d");
-    Console.WriteLine("  SHARMipMapGenerator --force --no_history C:\\input\\model.p3d");
+    Console.WriteLine("  SHARMipMapGenerator --min_size 8 C:\\input\\model.p3d C:\\output\\model.p3d");
+    Console.WriteLine("  SHARMipMapGenerator --force --no_history --num_mipmaps 3 C:\\input\\model.p3d");
     Console.WriteLine();
 }
 
@@ -400,13 +354,13 @@ static bool IsValidOutputPath(string outputPath)
 
 static bool ValidateTexture(TextureChunk texture)
 {
-    if (texture.Width % 2 != 0)
+    if (!BitOperations.IsPow2(texture.Width))
     {
         Console.WriteLine($"Skipping texture \"{texture.Name}\". Width is not a power of 2.");
         return false;
     }
 
-    if (texture.Height % 2 != 0)
+    if (!BitOperations.IsPow2(texture.Height))
     {
         Console.WriteLine($"Skipping texture \"{texture.Name}\". Height is not a power of 2.");
         return false;
@@ -454,18 +408,19 @@ static bool GenerateMipMaps(TextureChunk textureChunk, int numMipMaps, Dictionar
         var width = (int)(imageChunk.Width / Math.Pow(2, i));
         var height = (int)(imageChunk.Height / Math.Pow(2, i));
 
-        var newImage = new ImageChunk($"{imageChunk.Name}_{i}", imageChunk.Version, (uint)width, (uint)height, /*imageChunk.Bpp == 4 ? 8 : imageChunk.Bpp*/32, imageChunk.Palettized, imageChunk.HasAlpha, ImageChunk.Formats.PNG);
+        var newImage = new ImageChunk($"{imageChunk.Name}_{i}", imageChunk.Version, (uint)width, (uint)height, 32, imageChunk.Palettized, imageChunk.HasAlpha, ImageChunk.Formats.PNG);
         var newImageData = new ImageDataChunk(DownscaleImage(imageDataChunk.ImageData, width, height, textureChunk.Name));
         newImage.Children.Add(newImageData);
         images.Add(newImage);
+
+        if (width == 2 || height == 2)
+            break;
     }
 
     for (int i = textureChunk.Children.Count - 1; i >= 0; i--)
         textureChunk.Children.RemoveAt(i);
     textureChunk.Children.AddRange(images);
-    textureChunk.NumMipMaps = (uint)numMipMaps;
-    /*if (textureChunk.Bpp == 4)
-        textureChunk.Bpp = 8;*/
+    textureChunk.NumMipMaps = (uint)images.Count;
     textureChunk.Bpp = 32;
 
     if (textureShaderMap.TryGetValue(textureChunk.Name, out var shaderList))
@@ -505,32 +460,12 @@ static byte[] DownscaleImage(byte[] imageBytes, int newWidth, int newHeight, str
         }
     }
 
-    resultImage.Depth = image.Depth;
     resultImage.HasAlpha = image.HasAlpha;
     resultImage.BorderColor = image.BorderColor;
     resultImage.MatteColor = image.MatteColor;
     resultImage.Chromaticity = image.Chromaticity;
 
     return resultImage.ToByteArray(MagickFormat.Png32);
-    /*switch (image.Depth)
-    {
-        case 4:
-        case 8:
-            return resultImage.ToByteArray(MagickFormat.Png8);
-        case 24:
-            return resultImage.ToByteArray(MagickFormat.Png24);
-        case 32:
-            return resultImage.ToByteArray(MagickFormat.Png32);
-        case 48:
-            return resultImage.ToByteArray(MagickFormat.Png48);
-        case 64:
-            return resultImage.ToByteArray(MagickFormat.Png64);
-        default:
-            Console.WriteLine($"Unknown bitdepth found: {image.Depth}. May result in unexpected behaviour.");
-            Console.WriteLine("Press any key to continue . . .");
-            Console.ReadKey(true);
-            return resultImage.ToByteArray(MagickFormat.Png00);
-    }*/
 }
 
 static bool UpdateShaderFilterMode(IList<ShaderChunk> shaderList)
@@ -552,10 +487,4 @@ static bool UpdateShaderFilterMode(IList<ShaderChunk> shaderList)
         }
     }
     return changed;
-}
-
-enum Mode
-{
-    Number_of_MipMaps,
-    Minimum_Size
 }
